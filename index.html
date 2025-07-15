@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Game Bắn Mục Tiêu</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        background-color: #f0f0f0;
+        font-family: Arial, sans-serif;
+        overflow: hidden;
+        cursor: crosshair; /* Thay đổi con trỏ chuột thành hình thập */
+      }
+
+      #game-container {
+        width: 800px;
+        height: 500px;
+        background-color: #87ceeb; /* Nền trời */
+        border: 2px solid #333;
+        position: relative;
+        overflow: hidden;
+      }
+
+      #cannon {
+        width: 60px;
+        height: 60px;
+        background-color: #555;
+        border-radius: 50%; /* Hình tròn */
+        position: absolute;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+
+      #cannon::after {
+        content: "";
+        width: 15px;
+        height: 40px;
+        background-color: #333;
+        position: absolute;
+        top: -30px; /* Nòng súng */
+        border-radius: 5px;
+        transform-origin: bottom center; /* Quay quanh tâm đáy */
+        transform: rotate(0deg); /* Ban đầu hướng lên */
+      }
+
+      .bullet {
+        width: 8px;
+        height: 8px;
+        background-color: #ffd700; /* Màu vàng của đạn */
+        border-radius: 50%;
+        position: absolute;
+        z-index: 10;
+      }
+
+      .target {
+        width: 40px;
+        height: 40px;
+        background-color: #cd5c5c; /* Màu mục tiêu */
+        border-radius: 50%;
+        position: absolute;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 18px;
+        color: white;
+        font-weight: bold;
+        z-index: 5;
+        user-select: none; /* Ngăn chặn chọn văn bản */
+      }
+
+      #score,
+      #time {
+        position: absolute;
+        top: 10px;
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+        background-color: rgba(255, 255, 255, 0.7);
+        padding: 5px 10px;
+        border-radius: 5px;
+      }
+
+      #score {
+        left: 10px;
+      }
+
+      #time {
+        right: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game-container">
+      <div id="cannon"></div>
+      <div id="score">Điểm: 0</div>
+      <div id="time">Thời gian: 30</div>
+    </div>
+
+    <script>
+      const gameContainer = document.getElementById("game-container");
+      const cannon = document.getElementById("cannon");
+      const scoreDisplay = document.getElementById("score");
+      const timeDisplay = document.getElementById("time");
+
+      let score = 0;
+      let timeRemaining = 30; // 30 giây
+      let gameInterval;
+      let targetInterval;
+      const targets = []; // Mảng chứa các mục tiêu đang hoạt động
+
+      // Di chuyển nòng pháo theo chuột
+      gameContainer.addEventListener("mousemove", (e) => {
+        const cannonRect = cannon.getBoundingClientRect();
+        const cannonCenterX = cannonRect.left + cannonRect.width / 2;
+        const cannonCenterY = cannonRect.top + cannonRect.height / 2;
+
+        const angleRad = Math.atan2(
+          e.clientY - cannonCenterY,
+          e.clientX - cannonCenterX
+        );
+        let angleDeg = (angleRad * 180) / Math.PI;
+
+        // Giới hạn góc quay của nòng pháo (ví dụ: chỉ quay lên trên)
+        if (angleDeg > 0) angleDeg = 0; // Không quay xuống dưới
+        if (angleDeg < -180) angleDeg = -180; // Không quay quá xa sang trái/phải
+
+        // Điều chỉnh để nòng pháo quay đúng hướng
+        // Math.atan2 trả về giá trị từ -PI đến PI.
+        // Nếu bạn muốn nòng pháo chỉ quay lên trên từ -90 đến 90 độ (so với trục Y thẳng đứng)
+        // Cần điều chỉnh thêm, hiện tại mình làm đơn giản là không cho quay xuống
+
+        // Tìm phần tử nòng súng (pseudo-element :after không thể chọn trực tiếp bằng JS)
+        // Thay vào đó, chúng ta sẽ đặt một div nhỏ bên trong cannon làm nòng súng
+        const cannonBarrel = cannon.querySelector(".cannon-barrel");
+        if (cannonBarrel) {
+          // Điều chỉnh góc để nòng súng hướng về phía chuột
+          // Nòng súng quay 0 độ khi hướng lên, 90 độ khi hướng sang phải, -90 độ khi hướng sang trái
+          // Tính toán lại góc cho phù hợp với cách bạn vẽ nòng súng
+          const targetX = e.clientX;
+          const targetY = e.clientY;
+          const dx = targetX - cannonCenterX;
+          const dy = targetY - (cannonRect.bottom - 20); // Từ vị trí gần cuối của pháo
+          const angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90; // +90 để 0 độ là hướng lên trên
+
+          // Giới hạn góc để nòng súng không quay quá 90 độ sang hai bên
+          if (angle < 0) angleDeg = Math.max(angle, -90);
+          else angleDeg = Math.min(angle, 90);
+
+          cannonBarrel.style.transform = `rotate(${angleDeg}deg)`;
+        }
+      });
+
+      // Sửa lại HTML cho cannon để dễ dàng xoay nòng súng
+      cannon.innerHTML = '<div class="cannon-barrel"></div>';
+      const cannonBarrel = cannon.querySelector(".cannon-barrel"); // Lấy lại element nòng súng
+
+      gameContainer.addEventListener("mousemove", (e) => {
+        const cannonRect = cannon.getBoundingClientRect();
+        const cannonCenterX = cannonRect.left + cannonRect.width / 2;
+        const cannonBaseY = cannonRect.top + cannonRect.height / 2; // Tạm lấy giữa để tính toán
+
+        const mouseX = e.clientX;
+        const mouseY = e.clientY;
+
+        // Tính góc dựa vào vị trí chuột và vị trí nòng súng (phần gốc của nòng súng)
+        // Giả sử nòng súng xuất phát từ giữa pháo và hướng lên
+        const dx = mouseX - cannonCenterX;
+        const dy = mouseY - cannonBaseY;
+
+        // Math.atan2(y, x) trả về góc radian. Chuyển sang độ và điều chỉnh
+        let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90; // +90 để khi chuột thẳng trên, góc là 0
+
+        // Giới hạn góc quay (ví dụ: từ -60 độ đến 60 độ so với trục Y thẳng đứng)
+        angle = Math.max(angle, -60);
+        angle = Math.min(angle, 60);
+
+        cannonBarrel.style.transform = `rotate(${angle}deg)`;
+      });
+
+      // Bắn đạn khi click
+      gameContainer.addEventListener("click", (e) => {
+        if (timeRemaining <= 0) return; // Không bắn khi hết giờ
+
+        const bullet = document.createElement("div");
+        bullet.classList.add("bullet");
+        gameContainer.appendChild(bullet);
+
+        const cannonRect = cannon.getBoundingClientRect();
+        const cannonCenterX = cannonRect.left + cannonRect.width / 2;
+        const cannonBaseY = cannonRect.top + cannonRect.height / 2; // Gốc nòng súng
+
+        // Vị trí ban đầu của đạn (từ đầu nòng súng)
+        // Cần tính toán dựa trên góc quay của nòng súng
+        const barrelLength = 40; // Chiều dài nòng súng
+        const currentAngleRad =
+          (parseFloat(
+            cannonBarrel.style.transform
+              .replace("rotate(", "")
+              .replace("deg)", "")
+          ) *
+            Math.PI) /
+            180 -
+          Math.PI / 2; // Convert back to radians and adjust for 0 being up
+
+        // Vị trí xuất phát của đạn từ đầu nòng súng
+        const startX = cannonCenterX + barrelLength * Math.cos(currentAngleRad);
+        const startY = cannonBaseY + barrelLength * Math.sin(currentAngleRad);
+
+        bullet.style.left = `${
+          startX -
+          gameContainer.getBoundingClientRect().left -
+          bullet.offsetWidth / 2
+        }px`;
+        bullet.style.top = `${
+          startY -
+          gameContainer.getBoundingClientRect().top -
+          bullet.offsetHeight / 2
+        }px`;
+
+        const mouseX = e.clientX;
+        const mouseY = e.clientY;
+
+        const dx = mouseX - startX;
+        const dy = mouseY - startY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        const speed = 10;
+        const velocityX = (dx / distance) * speed;
+        const velocityY = (dy / distance) * speed;
+
+        function moveBullet() {
+          let currentLeft = parseFloat(bullet.style.left);
+          let currentTop = parseFloat(bullet.style.top);
+
+          currentLeft += velocityX;
+          currentTop += velocityY;
+
+          bullet.style.left = `${currentLeft}px`;
+          bullet.style.top = `${currentTop}px`;
+
+          // Kiểm tra va chạm với mục tiêu
+          for (let i = 0; i < targets.length; i++) {
+            const target = targets[i];
+            const targetRect = target.getBoundingClientRect();
+            const bulletRect = bullet.getBoundingClientRect();
+
+            if (
+              bulletRect.right > targetRect.left &&
+              bulletRect.left < targetRect.right &&
+              bulletRect.bottom > targetRect.top &&
+              bulletRect.top < targetRect.bottom
+            ) {
+              // Va chạm!
+              score++;
+              scoreDisplay.textContent = `Điểm: ${score}`;
+              target.remove(); // Xóa mục tiêu
+              targets.splice(i, 1); // Xóa khỏi mảng
+              bullet.remove(); // Xóa đạn
+              return; // Ngừng di chuyển đạn này
+            }
+          }
+
+          // Xóa đạn nếu ra khỏi màn hình
+          if (
+            currentLeft < -bullet.offsetWidth ||
+            currentLeft > gameContainer.offsetWidth ||
+            currentTop < -bullet.offsetHeight ||
+            currentTop > gameContainer.offsetHeight
+          ) {
+            bullet.remove();
+            return;
+          }
+
+          requestAnimationFrame(moveBullet);
+        }
+        moveBullet();
+      });
+
+      // Tạo mục tiêu
+      function createTarget() {
+        const target = document.createElement("div");
+        target.classList.add("target");
+        gameContainer.appendChild(target);
+        targets.push(target);
+
+        // Vị trí ngẫu nhiên ở phía trên màn hình
+        const startX = Math.random() * (gameContainer.offsetWidth - 40);
+        const startY = -40; // Bắt đầu từ ngoài màn hình
+
+        target.style.left = `${startX}px`;
+        target.style.top = `${startY}px`;
+
+        // Tốc độ di chuyển ngẫu nhiên
+        const speedX = (Math.random() - 0.5) * 4; // Từ -2 đến 2
+        const speedY = 1 + Math.random() * 2; // Từ 1 đến 3
+
+        function moveTarget() {
+          if (timeRemaining <= 0) return;
+
+          let currentLeft = parseFloat(target.style.left);
+          let currentTop = parseFloat(target.style.top);
+
+          currentLeft += speedX;
+          currentTop += speedY;
+
+          target.style.left = `${currentLeft}px`;
+          target.style.top = `${currentTop}px`;
+
+          // Xóa mục tiêu nếu ra khỏi màn hình
+          if (
+            currentTop > gameContainer.offsetHeight ||
+            currentLeft < -40 ||
+            currentLeft > gameContainer.offsetWidth
+          ) {
+            target.remove();
+            targets.splice(targets.indexOf(target), 1); // Xóa khỏi mảng
+            return;
+          }
+          requestAnimationFrame(moveTarget);
+        }
+        moveTarget();
+      }
+
+      // Đếm ngược thời gian
+      function countdown() {
+        timeRemaining--;
+        timeDisplay.textContent = `Thời gian: ${timeRemaining}`;
+
+        if (timeRemaining <= 0) {
+          clearInterval(gameInterval);
+          clearInterval(targetInterval);
+          alert(`Trò chơi kết thúc! Điểm của bạn: ${score}`);
+          location.reload(); // Tải lại trang để chơi lại
+        }
+      }
+
+      // Bắt đầu trò chơi
+      window.onload = () => {
+        gameInterval = setInterval(countdown, 1000); // Cập nhật thời gian mỗi giây
+        targetInterval = setInterval(createTarget, 1500); // Tạo mục tiêu mỗi 1.5 giây
+      };
+    </script>
+  </body>
+</html>
